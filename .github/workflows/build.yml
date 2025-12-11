@@ -16,10 +16,16 @@ jobs:
         include:
           - os: ubuntu-latest
             artifact_name: zls-linux
+            zig_arch: x86_64-linux
+            archive_ext: tar.xz
           - os: windows-latest
             artifact_name: zls-windows
+            zig_arch: x86_64-windows
+            archive_ext: zip
           - os: macos-latest
             artifact_name: zls-macos
+            zig_arch: aarch64-macos
+            archive_ext: tar.xz
 
     runs-on: ${{ matrix.os }}
     name: Build on ${{ matrix.os }}
@@ -30,10 +36,35 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Setup Zig
-        uses: mlugg/setup-zig@v1
-        with:
-          version: master
+      - name: Download Zig (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          ZIG_INDEX=$(curl -s https://ziglang.org/download/index.json)
+          ZIG_VERSION=$(echo "$ZIG_INDEX" | jq -r '.master.version')
+          ZIG_URL=$(echo "$ZIG_INDEX" | jq -r '.master."${{ matrix.zig_arch }}".tarball')
+          
+          echo "Downloading Zig $ZIG_VERSION for ${{ matrix.zig_arch }}"
+          curl -L "$ZIG_URL" -o zig.tar.xz
+          tar -xf zig.tar.xz
+          mv zig-* zig
+          echo "$PWD/zig" >> $GITHUB_PATH
+
+      - name: Download Zig (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $ZIG_INDEX = Invoke-RestMethod -Uri https://ziglang.org/download/index.json
+          $ZIG_VERSION = $ZIG_INDEX.master.version
+          $ZIG_URL = $ZIG_INDEX.master."${{ matrix.zig_arch }}".tarball
+          
+          Write-Host "Downloading Zig $ZIG_VERSION for ${{ matrix.zig_arch }}"
+          Invoke-WebRequest -Uri $ZIG_URL -OutFile zig.zip
+          Expand-Archive -Path zig.zip -DestinationPath .
+          $zigDir = Get-ChildItem -Directory -Filter "zig-*" | Select-Object -First 1
+          Rename-Item $zigDir.FullName "zig"
+          Add-Content $env:GITHUB_PATH "$PWD\zig"
+
+      - name: Verify Zig installation
+        run: zig version
 
       - name: Build ZLS
         run: zig build -Doptimize=ReleaseSafe
